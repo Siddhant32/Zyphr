@@ -27,6 +27,9 @@ export default function AdminPage() {
   const [token, setToken] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [recoveryMode, setRecoveryMode] = useState(false);
   const [authLoading, setAuthLoading] = useState(() => Boolean(supabase));
   const [loadingMoreDocs, setLoadingMoreDocs] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -105,8 +108,9 @@ export default function AdminPage() {
       setToken(data.session?.access_token ?? "");
       setAuthLoading(false);
     });
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
       setToken(session?.access_token ?? "");
+      if (event === "PASSWORD_RECOVERY") setRecoveryMode(true);
     });
     return () => listener.subscription.unsubscribe();
   }, [supabase]);
@@ -127,6 +131,32 @@ export default function AdminPage() {
     });
     if (signInError) setError(signInError.message);
     else setToken(data.session?.access_token ?? "");
+    setBusy(false);
+  }
+
+  async function updatePassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!supabase) return;
+    if (newPassword.length < 8) {
+      setError("Your password must be at least 8 characters long.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError("The passwords do not match.");
+      return;
+    }
+
+    setBusy(true);
+    setError("");
+    const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
+    if (updateError) {
+      setError(updateError.message);
+    } else {
+      setRecoveryMode(false);
+      setNewPassword("");
+      setConfirmPassword("");
+      setPassword("");
+    }
     setBusy(false);
   }
 
@@ -240,6 +270,48 @@ export default function AdminPage() {
           </form>
           {error && <p className="admin-error" role="alert">{error}</p>}
           <Link className="back-link" href="/"><ArrowLeft size={14} /> Return to Zyphr</Link>
+        </section>
+      </main>
+    );
+  }
+
+  if (recoveryMode) {
+    return (
+      <main className="admin-page">
+        <section className="admin-login">
+          <Brand />
+          <h1>Choose a new password.</h1>
+          <p>Set a new password for your administrator account.</p>
+          <form onSubmit={updatePassword}>
+            <div className="field">
+              <label htmlFor="new-admin-password">New password</label>
+              <input
+                id="new-admin-password"
+                type="password"
+                autoComplete="new-password"
+                minLength={8}
+                value={newPassword}
+                onChange={(event) => setNewPassword(event.target.value)}
+                required
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="confirm-admin-password">Confirm new password</label>
+              <input
+                id="confirm-admin-password"
+                type="password"
+                autoComplete="new-password"
+                minLength={8}
+                value={confirmPassword}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+                required
+              />
+            </div>
+            <button className="button button-primary full-button" disabled={busy} type="submit">
+              {busy ? "Updating password…" : "Update password"}
+            </button>
+          </form>
+          {error && <p className="admin-error" role="alert">{error}</p>}
         </section>
       </main>
     );
