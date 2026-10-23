@@ -139,6 +139,29 @@ def test_personalizes_certificate_template_placeholders_without_losing_text(
     assert "Academic Year 2026-2027. The student has satisfactorily" in paragraphs[2]
 
 
+def test_personalizes_certificate_b_tech_placeholder_as_department(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "certificate-department.docx"
+    output = tmp_path / "certificate-department-filled.docx"
+    document = Document()
+    document.add_paragraph("This is to certify that Mr./Ms. " + "_" * 60)
+    document.add_paragraph("(Reg. ID " + "_" * 22 + ") from B. Tech " + "_" * 42 + " has")
+    document.save(source)
+
+    counts = personalize_docx(
+        source,
+        output,
+        "Siddhant Chandanshiv",
+        "UST26L0102051",
+        {"department": "Computer Science Engineering"},
+    )
+    paragraphs = [paragraph.text for paragraph in Document(output).paragraphs]
+
+    assert counts == {"name": 1, "registration_id": 1, "department": 1}
+    assert "B. Tech Computer Science Engineering has" in paragraphs[1]
+
+
 def test_rejects_documents_without_recognized_student_fields(tmp_path: Path) -> None:
     source = tmp_path / "no-fields.docx"
     output = tmp_path / "should-not-exist.docx"

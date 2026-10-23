@@ -43,6 +43,7 @@ INLINE_FIELD_ANCHORS = {
     "name": re.compile(r"\bMr\.\s*/\s*Ms\.?\s*", re.IGNORECASE),
     "registration_id": re.compile(r"\bReg\.?\s*(?:ID|No\.?)\s*", re.IGNORECASE),
     "branch": re.compile(r"\bB\.\s*Tech\s*", re.IGNORECASE),
+    "department": re.compile(r"\bB\.\s*Tech\s*", re.IGNORECASE),
 }
 PLACEHOLDER_PATTERN = re.compile(r"\s*(?P<placeholder>_{2,})")
 WRAPPED_VALUE_PLACEHOLDER_PATTERN = re.compile(
@@ -165,7 +166,12 @@ def _replace_span(paragraph: Paragraph, start: int, end: int, value: str) -> Non
         raise ValueError("Student field could not be safely mapped to document runs.")
 
 
-def _replace_field_in_paragraph(paragraph: Paragraph, field: str, value: str) -> int:
+def _replace_field_in_paragraph(
+    paragraph: Paragraph,
+    field: str,
+    value: str,
+    enabled_fields: set[str] | None = None,
+) -> int:
     text = paragraph.text
     match = LABEL_PATTERN.match(text)
     if match:
@@ -202,6 +208,12 @@ def _replace_field_in_paragraph(paragraph: Paragraph, field: str, value: str) ->
             return 1
 
     anchor = INLINE_FIELD_ANCHORS.get(field)
+    if (
+        field in {"branch", "department"}
+        and enabled_fields is not None
+        and {"branch", "department"}.issubset(enabled_fields)
+    ):
+        anchor = None
     if anchor:
         label_match = anchor.search(text)
         if label_match:
@@ -267,6 +279,7 @@ def personalize_docx(
     unsupported_fields = values.keys() - FIELD_LABELS.keys()
     if unsupported_fields:
         raise ValueError("One or more selected student detail fields are unsupported.")
+    enabled_fields = set(values)
     counts = dict.fromkeys(values, 0)
     neighboring_counts, handled_labels = _replace_table_neighbor_fields(
         document, values
@@ -277,7 +290,7 @@ def personalize_docx(
             continue
         for field in values:
             counts[field] += _replace_field_in_paragraph(
-                paragraph, field, values[field]
+                paragraph, field, values[field], enabled_fields
             )
 
     for field in values:
