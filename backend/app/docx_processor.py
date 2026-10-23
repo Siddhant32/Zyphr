@@ -25,6 +25,19 @@ FIELD_LABELS: dict[str, tuple[str, ...]] = {
         r"reg\.?\s*(?:id|no\.?)",
         r"roll\s+no\.?",
     ),
+    "branch": (r"branch(?:\s+name)?", r"stream"),
+    "department": (r"department", r"dept\.?"),
+    "year": (r"academic\s+year", r"year\s+of\s+study", r"year"),
+    "section": (r"class\s+section", r"section"),
+}
+EXTRA_FIELD_IDS = frozenset({"branch", "department", "year", "section"})
+FIELD_DISPLAY_NAMES = {
+    "name": "student name",
+    "registration_id": "registration ID",
+    "branch": "branch",
+    "department": "department",
+    "year": "year",
+    "section": "section",
 }
 
 LABEL_PATTERN = re.compile(
@@ -208,10 +221,19 @@ def _replace_table_neighbor_fields(
     return replacements, handled_labels
 
 
-def personalize_docx(source: Path, destination: Path, name: str, registration_id: str) -> dict[str, int]:
+def personalize_docx(
+    source: Path,
+    destination: Path,
+    name: str,
+    registration_id: str,
+    extra_fields: dict[str, str] | None = None,
+) -> dict[str, int]:
     document = Document(source)
-    values = {"name": name, "registration_id": registration_id}
-    counts = {"name": 0, "registration_id": 0}
+    values = {"name": name, "registration_id": registration_id, **(extra_fields or {})}
+    unsupported_fields = values.keys() - FIELD_LABELS.keys()
+    if unsupported_fields:
+        raise ValueError("One or more selected student detail fields are unsupported.")
+    counts = dict.fromkeys(values, 0)
     neighboring_counts, handled_labels = _replace_table_neighbor_fields(
         document, values
     )
@@ -226,6 +248,17 @@ def personalize_docx(source: Path, destination: Path, name: str, registration_id
 
     for field in values:
         counts[field] += neighboring_counts[field]
+    missing_fields = [
+        FIELD_DISPLAY_NAMES[field]
+        for field, count in counts.items()
+        if field in (extra_fields or {}) and not count
+    ]
+    if missing_fields:
+        missing = ", ".join(missing_fields)
+        raise ValueError(
+            f"No recognizable DOCX field was found for {missing}. "
+            "Ask the administrator to add a supported label to the DOCX."
+        )
     if not sum(counts.values()):
         raise ValueError(
             "No recognizable student name or registration ID fields were found. "

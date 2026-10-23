@@ -4,6 +4,15 @@ import { ArrowUpRight, FileText, Menu, X } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
+export const EXTRA_STUDENT_FIELDS = [
+  { id: "branch", label: "Branch" },
+  { id: "department", label: "Department" },
+  { id: "year", label: "Year" },
+  { id: "section", label: "Section" },
+] as const;
+
+export type ExtraStudentField = (typeof EXTRA_STUDENT_FIELDS)[number]["id"];
+
 export type Practical = {
   id: string;
   title: string;
@@ -12,6 +21,7 @@ export type Practical = {
   cover_image_url?: string | null;
   experiment_count?: number | null;
   tags?: string[];
+  extra_fields?: ExtraStudentField[];
   created_at: string;
 };
 

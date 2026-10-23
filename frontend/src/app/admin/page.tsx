@@ -11,8 +11,47 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { Brand, Practical } from "@/components/site";
+import {
+  Brand,
+  ExtraStudentField,
+  EXTRA_STUDENT_FIELDS,
+  Practical,
+} from "@/components/site";
 import { getSupabaseBrowserClient } from "@/lib/supabase";
+
+function toggleExtraField(fields: ExtraStudentField[], field: ExtraStudentField) {
+  return fields.includes(field)
+    ? fields.filter((selected) => selected !== field)
+    : [...fields, field];
+}
+
+function ExtraFieldSelector({
+  idPrefix,
+  selected,
+  onChange,
+}: {
+  idPrefix: string;
+  selected: ExtraStudentField[];
+  onChange: (fields: ExtraStudentField[]) => void;
+}) {
+  return (
+    <fieldset className="field-options">
+      <legend>Additional student details</legend>
+      <p>Name and Registration ID are always collected.</p>
+      {EXTRA_STUDENT_FIELDS.map(({ id, label }) => (
+        <label key={id} htmlFor={`${idPrefix}-${id}`}>
+          <input
+            id={`${idPrefix}-${id}`}
+            type="checkbox"
+            checked={selected.includes(id)}
+            onChange={() => onChange(toggleExtraField(selected, id))}
+          />
+          {label}
+        </label>
+      ))}
+    </fieldset>
+  );
+}
 
 type Stats = {
   total_documents: number;
@@ -46,12 +85,14 @@ export default function AdminPage() {
   const [newSubject, setNewSubject] = useState("");
   const [newDescription, setNewDescription] = useState("");
   const [experimentCount, setExperimentCount] = useState("");
+  const [newExtraFields, setNewExtraFields] = useState<ExtraStudentField[]>([]);
   const [published, setPublished] = useState(false);
   const [docxFile, setDocxFile] = useState<File | null>(null);
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editSubject, setEditSubject] = useState("");
   const [editDescription, setEditDescription] = useState("");
+  const [editExtraFields, setEditExtraFields] = useState<ExtraStudentField[]>([]);
 
   const api = useCallback(
     async (url: string, init: RequestInit = {}) => {
@@ -185,6 +226,7 @@ export default function AdminPage() {
     form.set("subject", newSubject.trim());
     form.set("description", newDescription.trim());
     if (experimentCount) form.set("experiment_count", experimentCount);
+    newExtraFields.forEach((field) => form.append("extra_fields", field));
     form.set("published", String(published));
     if (coverFile) form.set("cover_image", coverFile);
     try {
@@ -204,6 +246,7 @@ export default function AdminPage() {
       setNewSubject("");
       setNewDescription("");
       setExperimentCount("");
+      setNewExtraFields([]);
       setPublished(false);
       setDocxFile(null);
       setCoverFile(null);
@@ -383,6 +426,7 @@ export default function AdminPage() {
               <div className="field"><label htmlFor="new-subject">Subject</label><input id="new-subject" value={newSubject} onChange={(event) => setNewSubject(event.target.value)} maxLength={100} required /></div>
               <div className="field"><label htmlFor="new-description">Description</label><textarea id="new-description" value={newDescription} onChange={(event) => setNewDescription(event.target.value)} maxLength={2000} required /></div>
               <div className="field"><label htmlFor="experiment-count">Number of experiments <span>(optional)</span></label><input id="experiment-count" type="number" min="0" max="1000" value={experimentCount} onChange={(event) => setExperimentCount(event.target.value)} /></div>
+              <ExtraFieldSelector idPrefix="new-extra-field" selected={newExtraFields} onChange={setNewExtraFields} />
               <div className="field"><label htmlFor="cover-image">Cover image <span>(optional, PNG/JPEG/WebP)</span></label><input id="cover-image" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => setCoverFile(event.target.files?.[0] ?? null)} /></div>
               <label className="checkbox-row"><input type="checkbox" checked={published} onChange={(event) => setPublished(event.target.checked)} /><span>Publish this practical after upload</span></label>
               <button className="button button-primary full-button" type="submit" disabled={busy}><FilePlus2 size={16} /> {busy ? "Uploading and validating…" : "Upload practical"}</button>
@@ -430,6 +474,7 @@ export default function AdminPage() {
                         setEditTitle(document.title);
                         setEditSubject(document.subject);
                         setEditDescription(document.description ?? "");
+                        setEditExtraFields(document.extra_fields ?? []);
                       }}>Edit</button>
                       <button className="small-button small-danger" aria-label={`Delete ${document.title}`} onClick={() => void deleteDocument(document)}><Trash2 size={13} /></button>
                     </div>
@@ -440,13 +485,15 @@ export default function AdminPage() {
                       <span>{document.subject}{document.experiment_count != null ? ` · ${document.experiment_count} experiments` : ""}</span>
                       <p>{document.description || "No description provided."}</p>
                       <span>{document.tags?.length ? `Tags: ${document.tags.join(", ")}` : "No tags"}</span>
+                      <span>{document.extra_fields?.length ? `Student fields: ${document.extra_fields.join(", ")}` : "Student fields: Name and Registration ID"}</span>
                     </div>
                   )}
                   {editingId === document.id && (
-                    <form className="edit-form" onSubmit={(event) => { event.preventDefault(); void updateDocument(document.id, { title: editTitle, subject: editSubject, description: editDescription }); }}>
+                    <form className="edit-form" onSubmit={(event) => { event.preventDefault(); void updateDocument(document.id, { title: editTitle, subject: editSubject, description: editDescription, extra_fields: editExtraFields }); }}>
                       <div className="field"><label htmlFor={`edit-title-${document.id}`}>Title</label><input id={`edit-title-${document.id}`} value={editTitle} onChange={(event) => setEditTitle(event.target.value)} maxLength={160} required /></div>
                       <div className="field"><label htmlFor={`edit-subject-${document.id}`}>Subject</label><input id={`edit-subject-${document.id}`} value={editSubject} onChange={(event) => setEditSubject(event.target.value)} maxLength={100} required /></div>
                       <div className="field"><label htmlFor={`edit-description-${document.id}`}>Description</label><textarea id={`edit-description-${document.id}`} value={editDescription} onChange={(event) => setEditDescription(event.target.value)} maxLength={2000} /></div>
+                      <ExtraFieldSelector idPrefix={`edit-${document.id}-extra-field`} selected={editExtraFields} onChange={setEditExtraFields} />
                       <div className="edit-actions"><button className="small-button" type="submit" disabled={busy}>Save changes</button><button className="small-button" type="button" onClick={() => setEditingId("")}>Cancel</button></div>
                     </form>
                   )}

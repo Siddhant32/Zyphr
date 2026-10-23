@@ -60,6 +60,7 @@ def test_generation_uses_fresh_copy_and_does_not_change_source(
     source_document = Document()
     source_document.add_paragraph("Name of Student: Old Student")
     source_document.add_paragraph("Reg ID: OLD-001")
+    source_document.add_paragraph("Branch: Old Branch")
     source_document.save(original_path)
     source_bytes = original_path.read_bytes()
     personalized_text: list[str] = []
@@ -71,6 +72,7 @@ def test_generation_uses_fresh_copy_and_does_not_change_source(
             "id": str(document_id),
             "published": True,
             "original_file_path": f"documents/{document_id}.docx",
+            "extra_fields": ["branch"],
         }
 
     async def fake_request(method, path, **kwargs):
@@ -96,6 +98,7 @@ def test_generation_uses_fresh_copy_and_does_not_change_source(
             "document_id": str(document_id),
             "full_name": "Asha Rao",
             "registration_id": "00-CS-81",
+            "extra_fields": {"branch": "Computer Science"},
         },
     )
     second = client.post(
@@ -104,6 +107,7 @@ def test_generation_uses_fresh_copy_and_does_not_change_source(
             "document_id": str(document_id),
             "full_name": "Mira Sen",
             "registration_id": "00-CS-82",
+            "extra_fields": {"branch": "Information Technology"},
         },
     )
 
@@ -112,8 +116,10 @@ def test_generation_uses_fresh_copy_and_does_not_change_source(
     assert first.content.startswith(b"%PDF-")
     assert "Asha Rao" in personalized_text[0]
     assert "00-CS-81" in personalized_text[0]
+    assert "Computer Science" in personalized_text[0]
     assert "Mira Sen" in personalized_text[1]
     assert "00-CS-82" in personalized_text[1]
+    assert "Information Technology" in personalized_text[1]
     assert "Asha Rao" not in personalized_text[1]
     assert original_path.read_bytes() == source_bytes
 
@@ -134,6 +140,25 @@ def test_generation_rejects_unpublished_documents(
         },
     )
     assert response.status_code == 404
+
+
+def test_generation_requires_all_configured_extra_fields(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def configured_document(identifier, *, published_only=False):
+        return {"id": str(identifier), "published": True, "extra_fields": ["branch"]}
+
+    monkeypatch.setattr(main, "_load_document", configured_document)
+    response = client.post(
+        "/api/generate",
+        json={
+            "document_id": "7e3be4a8-211b-4f55-bd2c-9e19723973d3",
+            "full_name": "Asha Rao",
+            "registration_id": "0012",
+        },
+    )
+    assert response.status_code == 422
+    assert "every additional field" in response.json()["detail"]
 
 
 def test_admin_stats_and_list_hide_source_storage_paths(
@@ -222,12 +247,14 @@ def test_admin_upload_validates_and_stores_docx(
                 "title": "Operating Systems",
                 "subject": "OS",
                 "description": "Practical exercises",
+                "extra_fields": ["branch"],
             },
         )
 
     assert response.status_code == 201
     assert len(uploads) == 1
     assert response.json()["title"] == "Operating Systems"
+    assert response.json()["extra_fields"] == ["branch"]
     assert "original_file_path" not in response.json()
 
 

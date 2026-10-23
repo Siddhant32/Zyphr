@@ -22,7 +22,7 @@ from fastapi.responses import Response
 from lxml.etree import XMLSyntaxError
 from pydantic import BaseModel, Field, field_validator
 
-from .docx_processor import convert_docx_to_pdf, personalize_docx
+from .docx_processor import EXTRA_FIELD_IDS, convert_docx_to_pdf, personalize_docx
 from .settings import settings
 
 logger = logging.getLogger("zyphr")
@@ -36,6 +36,7 @@ class GenerationRequest(BaseModel):
     document_id: UUID
     full_name: str = Field(min_length=1, max_length=120)
     registration_id: str = Field(min_length=1, max_length=64)
+    extra_fields: dict[str, str] = Field(default_factory=dict, max_length=4)
 
     @field_validator("full_name")
     @classmethod
@@ -53,6 +54,18 @@ class GenerationRequest(BaseModel):
             raise ValueError("Enter a valid registration ID.")
         return value
 
+    @field_validator("extra_fields")
+    @classmethod
+    def validate_extra_fields(cls, values: dict[str, str]) -> dict[str, str]:
+        for field, value in values.items():
+            if field not in EXTRA_FIELD_IDS:
+                raise ValueError("One or more selected student detail fields are unsupported.")
+            value = value.strip()
+            if not value or not re.fullmatch(r"[\wÀ-ž][\wÀ-ž .,'’/&\-]{0,79}", value):
+                raise ValueError(f"Enter a valid {field.replace('_', ' ')}.")
+            values[field] = value
+        return values
+
 
 class DocumentUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=160)
@@ -60,7 +73,18 @@ class DocumentUpdate(BaseModel):
     description: str | None = Field(default=None, max_length=2000)
     experiment_count: int | None = Field(default=None, ge=0, le=1000)
     tags: list[str] | None = Field(default=None, max_length=20)
+    extra_fields: list[str] | None = Field(default=None, max_length=4)
     published: bool | None = None
+
+    @field_validator("extra_fields")
+    @classmethod
+    def validate_extra_fields(cls, fields: list[str] | None) -> list[str] | None:
+        if fields is not None and (
+            len(fields) != len(set(fields))
+            or not set(fields).issubset(EXTRA_FIELD_IDS)
+        ):
+            raise ValueError("Choose valid, non-duplicated additional student fields.")
+        return fields
 
 
 app = FastAPI(title="Zyphr document service", version="1.0.0")
@@ -182,6 +206,7 @@ def _admin_document(document: dict[str, Any]) -> dict[str, Any]:
         "cover_image_path",
         "experiment_count",
         "tags",
+        "extra_fields",
         "published",
         "generation_count",
         "created_at",
@@ -295,6 +320,7 @@ async def get_practical(document_id: UUID) -> dict[str, Any]:
             "cover_image_path",
             "experiment_count",
             "tags",
+            "extra_fields",
             "created_at",
         )
     }
@@ -324,6 +350,12 @@ async def generate_pdf(payload: GenerationRequest, request: Request) -> Response
     client_ip = request.client.host if request.client else "unknown"
     _check_generation_rate_limit(client_ip)
     document = await _load_document(payload.document_id, published_only=True)
+    configured_fields = set(document.get("extra_fields") or [])
+    if set(payload.extra_fields) != configured_fields:
+        raise HTTPException(
+            status_code=422,
+            detail="Submit a value for every additional field configured for this practical.",
+        )
 
     try:
         source_response = await _supabase_request(
@@ -344,6 +376,7 @@ async def generate_pdf(payload: GenerationRequest, request: Request) -> Response
                 working_path,
                 payload.full_name,
                 payload.registration_id,
+                payload.extra_fields,
             )
         except (
             ValueError,
@@ -433,6 +466,7 @@ async def create_document(
     description: str = Form(..., min_length=1, max_length=2000),
     experiment_count: int | None = Form(default=None, ge=0, le=1000),
     tags: str = Form(default=""),
+    extra_fields: list[str] = Form(default=[]),
     published: bool = Form(default=False),
     cover_image: UploadFile | None = File(default=None),
 ) -> dict[str, Any]:
@@ -442,6 +476,14 @@ async def create_document(
         raise HTTPException(
             status_code=422,
             detail="Title, subject, and description are required.",
+        )
+    if (
+        len(extra_fields) != len(set(extra_fields))
+        or not set(extra_fields).issubset(EXTRA_FIELD_IDS)
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="Choose valid, non-duplicated additional student fields.",
         )
     if not file.filename or Path(file.filename).suffix.lower() != ".docx":
         raise HTTPException(status_code=415, detail="Upload a DOCX file.")
@@ -512,6 +554,7 @@ async def create_document(
                 "cover_image_path": cover_path,
                 "experiment_count": experiment_count,
                 "tags": tags_list,
+                "extra_fields": extra_fields,
                 "published": published,
             },
             headers=_service_headers({"Prefer": "return=representation"}),
@@ -547,9 +590,11 @@ async def update_document(
                 raise HTTPException(status_code=422, detail=f"{key.title()} cannot be blank.")
     for key in ("description", "tags"):
         if key in values and values[key] is not None:
-            values[key] = values[key].strip() if key == "description" else [
-                tag.strip()[:40] for tag in values[key] if tag.strip()
-            ][:20]
+            values[key] = (
+                values[key].strip()
+                if key == "description"
+                else [tag.strip()[:40] for tag in values[key] if tag.strip()][:20]
+            )
     await _load_document(document_id)
     response = await _supabase_request(
         "PATCH",

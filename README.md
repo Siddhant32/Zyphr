@@ -2,7 +2,7 @@
 
 **Your Practicals. Your Details. Your PDF.**
 
-Zyphr lets an administrator upload a practical DOCX once. Students can find a published practical, enter their name and registration ID, and download an independently generated PDF without creating an account.
+Zyphr lets an administrator upload a practical DOCX once and choose which extra student details it needs. Students can find a published practical, enter their name and registration ID plus any configured details (such as branch), and download an independently generated PDF without creating an account.
 
 ## Project layout
 
@@ -20,7 +20,7 @@ Zyphr lets an administrator upload a practical DOCX once. Students can find a pu
 ## Supabase setup
 
 1. Create a Supabase project.
-2. Apply [`supabase/migrations/202610220001_zyphr_schema.sql`](./supabase/migrations/202610220001_zyphr_schema.sql) in the Supabase SQL Editor, or with the Supabase CLI.
+2. Apply [`supabase/migrations/202610220001_zyphr_schema.sql`](./supabase/migrations/202610220001_zyphr_schema.sql) followed by [`supabase/migrations/202610230001_document_extra_fields.sql`](./supabase/migrations/202610230001_document_extra_fields.sql) in the Supabase SQL Editor, or with the Supabase CLI. Existing projects should apply the second migration to add per-practical student field settings.
 3. In Supabase Auth, create the first administrator user. Copy that user's UUID from the Auth users page.
 4. Set `ADMIN_USER_IDS` to a comma-separated list of administrator user UUIDs. The backend checks the access token with Supabase Auth and then enforces this allowlist on every admin endpoint. Do not rely on a client-side route guard.
 5. The migration creates a private `practical-documents` bucket for source DOCX files and a public-read `practical-covers` bucket for optional, non-sensitive cover images. Original files are never served publicly.
@@ -73,9 +73,9 @@ Open `http://localhost:3000`. The public library reads real published Supabase r
 
 ## DOCX field handling
 
-The processor recognizes `Name of Student(s)`, `Student Name`, `Name`, `Reg. Id`, `Reg ID`, `Registration ID`, `Registration No.`, and `Roll No.` labels with common capitalization and punctuation variations. It looks in document paragraphs, table cells, headers, and footers; it handles labels/values split across Word runs and empty value cells adjacent to a labeled table cell.
+Administrators can enable Branch, Department, Year, and Section for each practical; student name and registration ID remain required. Add matching labels to the DOCX for every enabled field: for example, `Branch`, `Department`/`Dept.`, `Year`/`Academic Year`, and `Section`. The processor also recognizes `Name of Student(s)`, `Student Name`, `Name`, `Reg. Id`, `Reg ID`, `Registration ID`, `Registration No.`, and `Roll No.` labels with common capitalization and punctuation variations. It looks in document paragraphs, table cells, headers, and footers; it handles labels/values split across Word runs and empty value cells adjacent to a labeled table cell. PDF generation reports an error if an enabled field has no matching DOCX label rather than silently omitting that detail.
 
-Each request downloads the original from private storage to a fresh random temporary directory, edits a working copy, converts it with an isolated LibreOffice profile, returns the PDF with `Cache-Control: no-store`, and removes the temporary directory. Names and registration IDs are not written to analytics records or application logs. The original upload is not modified.
+Each request downloads the original from private storage to a fresh random temporary directory, edits a working copy, converts it with an isolated LibreOffice profile, returns the PDF with `Cache-Control: no-store`, and removes the temporary directory. Student-provided details are not written to analytics records or application logs. The original upload is not modified.
 
 DOCX text boxes, floating shapes, and some other DrawingML/embedded-object text are not edited by `python-docx`. Complex fields or unusual run-level formatting may need an administrator to adjust the template. LibreOffice may render a DOCX differently from Microsoft Word, so administrators should test representative files and inspect generated PDFs before publishing. Zyphr rejects generation when it cannot find a supported student-detail field instead of silently returning an unpersonalized PDF.
 

@@ -56,6 +56,53 @@ def test_fills_table_neighbor_and_header_footer_fields(tmp_path: Path) -> None:
     assert result.sections[0].footer.paragraphs[0].text == "Roll No.00-12A"
 
 
+def test_replaces_selected_additional_student_fields(tmp_path: Path) -> None:
+    source = tmp_path / "additional-fields.docx"
+    output = tmp_path / "additional-fields-filled.docx"
+    document = Document()
+    document.add_paragraph("Name: ")
+    document.add_paragraph("Registration ID: ")
+    document.add_paragraph("Branch: Old Branch")
+    table = document.add_table(rows=1, cols=2)
+    table.cell(0, 0).text = "Department:"
+    document.save(source)
+
+    counts = personalize_docx(
+        source,
+        output,
+        "Asha Rao",
+        "REG-0081",
+        {"branch": "Computer Science", "department": "Engineering"},
+    )
+    result = Document(output)
+
+    assert counts == {
+        "name": 1,
+        "registration_id": 1,
+        "branch": 1,
+        "department": 1,
+    }
+    assert [paragraph.text for paragraph in result.paragraphs] == [
+        "Name: Asha Rao",
+        "Registration ID: REG-0081",
+        "Branch: Computer Science",
+    ]
+    assert result.tables[0].cell(0, 1).text == "Engineering"
+
+
+def test_requires_a_docx_label_for_each_selected_extra_field(tmp_path: Path) -> None:
+    source = tmp_path / "missing-branch.docx"
+    output = tmp_path / "should-not-exist.docx"
+    document = Document()
+    document.add_paragraph("Name: ")
+    document.add_paragraph("Registration ID: ")
+    document.save(source)
+
+    with pytest.raises(ValueError, match="branch"):
+        personalize_docx(source, output, "Asha Rao", "REG-0081", {"branch": "CSE"})
+    assert not output.exists()
+
+
 def test_rejects_documents_without_recognized_student_fields(tmp_path: Path) -> None:
     source = tmp_path / "no-fields.docx"
     output = tmp_path / "should-not-exist.docx"

@@ -3,7 +3,13 @@
 import { ArrowLeft, CheckCircle2, FileText, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
-import { Practical, SiteFooter, SiteHeader } from "@/components/site";
+import {
+  EXTRA_STUDENT_FIELDS,
+  ExtraStudentField,
+  Practical,
+  SiteFooter,
+  SiteHeader,
+} from "@/components/site";
 
 export default function PracticalDetails({ id }: { id: string }) {
   const [document, setDocument] = useState<Practical | null>(null);
@@ -11,6 +17,7 @@ export default function PracticalDetails({ id }: { id: string }) {
   const [error, setError] = useState("");
   const [name, setName] = useState("");
   const [registrationId, setRegistrationId] = useState("");
+  const [extraValues, setExtraValues] = useState<Partial<Record<ExtraStudentField, string>>>({});
   const [confirmed, setConfirmed] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [message, setMessage] = useState("");
@@ -42,6 +49,21 @@ export default function PracticalDetails({ id }: { id: string }) {
     if (!/^[A-Za-z0-9][A-Za-z0-9 ./_-]{0,63}$/.test(cleanRegistrationId)) {
       return setMessage("Enter a valid registration ID.");
     }
+    const configuredFields = document?.extra_fields ?? [];
+    const cleanExtraFields = Object.fromEntries(
+      configuredFields.map((field) => [field, extraValues[field]?.trim() ?? ""]),
+    );
+    for (const field of configuredFields) {
+      const value = cleanExtraFields[field];
+      if (!value) {
+        const label = EXTRA_STUDENT_FIELDS.find((option) => option.id === field)?.label ?? field;
+        return setMessage(`Enter your ${label.toLowerCase()}.`);
+      }
+      if (!/^[\p{L}\p{N}][\p{L}\p{N} .,'’/&\-]{0,79}$/u.test(value)) {
+        const label = EXTRA_STUDENT_FIELDS.find((option) => option.id === field)?.label ?? field;
+        return setMessage(`Enter a valid ${label.toLowerCase()}.`);
+      }
+    }
     if (!confirmed) return setMessage("Please confirm your details are correct.");
 
     setGenerating(true);
@@ -55,6 +77,7 @@ export default function PracticalDetails({ id }: { id: string }) {
           document_id: document?.id,
           full_name: cleanName,
           registration_id: cleanRegistrationId,
+          extra_fields: cleanExtraFields,
         }),
       });
       if (!response.ok) {
@@ -139,13 +162,33 @@ export default function PracticalDetails({ id }: { id: string }) {
                       aria-describedby="generation-message"
                     />
                   </div>
+                  {(document.extra_fields ?? []).map((field) => {
+                    const label = EXTRA_STUDENT_FIELDS.find((option) => option.id === field)?.label ?? field;
+                    return (
+                      <div className="field" key={field}>
+                        <label htmlFor={`student-${field}`}>{label}</label>
+                        <input
+                          id={`student-${field}`}
+                          maxLength={80}
+                          value={extraValues[field] ?? ""}
+                          onChange={(event) => setExtraValues((current) => ({
+                            ...current,
+                            [field]: event.target.value,
+                          }))}
+                          placeholder={`Enter your ${label.toLowerCase()}`}
+                          required
+                          aria-describedby="generation-message"
+                        />
+                      </div>
+                    );
+                  })}
                   <label className="checkbox-row">
                     <input
                       type="checkbox"
                       checked={confirmed}
                       onChange={(event) => setConfirmed(event.target.checked)}
                     />
-                    <span>I’ve checked that my name and registration ID are correct.</span>
+                    <span>I’ve checked that all my details are correct.</span>
                   </label>
                   <button className="button button-primary full-button" type="submit" disabled={generating}>
                     {generating ? <><span className="spinner" /> Generating your PDF…</> : <>Generate my PDF <FileText size={16} /></>}
