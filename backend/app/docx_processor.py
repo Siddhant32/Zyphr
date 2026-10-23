@@ -39,6 +39,24 @@ FIELD_DISPLAY_NAMES = {
     "year": "year",
     "section": "section",
 }
+INLINE_FIELD_ANCHORS = {
+    "name": re.compile(r"\bMr\.\s*/\s*Ms\.?\s*", re.IGNORECASE),
+    "registration_id": re.compile(r"\bReg\.?\s*(?:ID|No\.?)\s*", re.IGNORECASE),
+    "branch": re.compile(r"\bB\.\s*Tech\s*", re.IGNORECASE),
+}
+PLACEHOLDER_PATTERN = re.compile(r"\s*(?P<placeholder>_{2,})")
+WRAPPED_VALUE_PLACEHOLDER_PATTERN = re.compile(
+    r"\s*(?P<placeholder>_{2,}(?:[^_]*?_{2,})?)"
+)
+
+
+def _placeholder_match(text: str, start: int, field: str) -> re.Match[str] | None:
+    pattern = (
+        WRAPPED_VALUE_PLACEHOLDER_PATTERN
+        if field == "year"
+        else PLACEHOLDER_PATTERN
+    )
+    return pattern.match(text, start)
 
 LABEL_PATTERN = re.compile(
     r"^\s*(?P<label>"
@@ -150,33 +168,49 @@ def _replace_span(paragraph: Paragraph, start: int, end: int, value: str) -> Non
 def _replace_field_in_paragraph(paragraph: Paragraph, field: str, value: str) -> int:
     text = paragraph.text
     match = LABEL_PATTERN.match(text)
-    if not match:
-        return 0
+    if match:
+        label = match.group("label").casefold()
+        field_for_label = next(
+            (
+                field_name
+                for field_name, patterns in FIELD_LABELS.items()
+                if any(
+                    re.fullmatch(pattern, label, flags=re.IGNORECASE)
+                    for pattern in patterns
+                )
+            ),
+            None,
+        )
+        if field_for_label == field:
+            suffix_start = match.end()
+            placeholder = _placeholder_match(text, suffix_start, field)
+            if placeholder:
+                value_start, value_end = placeholder.span("placeholder")
+                _replace_span(paragraph, value_start, value_end, value)
+            else:
+                value_start = suffix_start
+                value_end = len(text)
+                if text[value_start:value_end].strip() == value:
+                    return 0
+                replacement = value
+                if (
+                    value_start == value_end
+                    and not text.endswith((" ", "\t", ":", "：", ".", "-"))
+                ):
+                    replacement = f" {value}"
+                _replace_span(paragraph, value_start, value_end, replacement)
+            return 1
 
-    label = match.group("label").casefold()
-    field_for_label = next(
-        (
-            field_name
-            for field_name, patterns in FIELD_LABELS.items()
-            if any(re.fullmatch(pattern, label, flags=re.IGNORECASE) for pattern in patterns)
-        ),
-        None,
-    )
-    if field_for_label != field:
-        return 0
-
-    value_start = match.end()
-    value_end = len(text)
-    if text[value_start:value_end].strip() == value:
-        return 0
-    replacement = value
-    if (
-        value_start == value_end
-        and not text.endswith((" ", "\t", ":", "：", ".", "-"))
-    ):
-        replacement = f" {value}"
-    _replace_span(paragraph, value_start, value_end, replacement)
-    return 1
+    anchor = INLINE_FIELD_ANCHORS.get(field)
+    if anchor:
+        label_match = anchor.search(text)
+        if label_match:
+            placeholder = _placeholder_match(text, label_match.end(), field)
+            if placeholder:
+                value_start, value_end = placeholder.span("placeholder")
+                _replace_span(paragraph, value_start, value_end, value)
+                return 1
+    return 0
 
 
 def _set_empty_cell(cell: _Cell, value: str) -> None:
@@ -250,18 +284,13 @@ def personalize_docx(
         counts[field] += neighboring_counts[field]
     missing_fields = [
         FIELD_DISPLAY_NAMES[field]
-        for field, count in counts.items()
-        if field in (extra_fields or {}) and not count
+        for field in ("name", "registration_id", *(extra_fields or {}))
+        if not counts[field]
     ]
     if missing_fields:
         missing = ", ".join(missing_fields)
         raise ValueError(
             f"No recognizable DOCX field was found for {missing}. "
-            "Ask the administrator to add a supported label to the DOCX."
-        )
-    if not sum(counts.values()):
-        raise ValueError(
-            "No recognizable student name or registration ID fields were found. "
             "Ask the administrator to add a supported label to the DOCX."
         )
 

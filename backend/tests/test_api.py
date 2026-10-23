@@ -52,6 +52,26 @@ def test_public_library_queries_published_documents_only(
     assert "original_file_path" not in response.json()["items"][0]
 
 
+def test_public_practical_includes_configured_student_fields(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def fake_load(identifier, *, published_only=False):
+        assert str(identifier) == "7e3be4a8-211b-4f55-bd2c-9e19723973d3"
+        assert published_only
+        return {
+            "id": str(identifier),
+            "title": "Certificate",
+            "extra_fields": ["branch", "year"],
+            "published": True,
+        }
+
+    monkeypatch.setattr(main, "_load_document", fake_load)
+    response = client.get("/api/practicals/7e3be4a8-211b-4f55-bd2c-9e19723973d3")
+
+    assert response.status_code == 200
+    assert response.json()["extra_fields"] == ["branch", "year"]
+
+
 def test_generation_uses_fresh_copy_and_does_not_change_source(
     client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

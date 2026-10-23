@@ -103,6 +103,42 @@ def test_requires_a_docx_label_for_each_selected_extra_field(tmp_path: Path) -> 
     assert not output.exists()
 
 
+def test_personalizes_certificate_template_placeholders_without_losing_text(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "certificate.docx"
+    output = tmp_path / "certificate-filled.docx"
+    document = Document()
+    document.add_paragraph(
+        "This is to certify that Mr./Ms. "
+        "____________________________________________________________"
+    )
+    document.add_paragraph(
+        "(Reg. ID ________________________) from   B. Tech "
+        "__________________________________________ has"
+    )
+    document.add_paragraph(
+        "Academic Year _____2026-2027______. The student has satisfactorily "
+        "performed all the required experiments."
+    )
+    document.save(source)
+
+    counts = personalize_docx(
+        source,
+        output,
+        "Siddhant Chandanshiv",
+        "UST26L0102051",
+        {"branch": "Computer Science", "year": "2026-2027"},
+    )
+    result = Document(output)
+    paragraphs = [paragraph.text for paragraph in result.paragraphs]
+
+    assert counts == {"name": 1, "registration_id": 1, "branch": 1, "year": 1}
+    assert "Mr./Ms. Siddhant Chandanshiv" in paragraphs[0]
+    assert "(Reg. ID UST26L0102051) from   B. Tech Computer Science has" in paragraphs[1]
+    assert "Academic Year 2026-2027. The student has satisfactorily" in paragraphs[2]
+
+
 def test_rejects_documents_without_recognized_student_fields(tmp_path: Path) -> None:
     source = tmp_path / "no-fields.docx"
     output = tmp_path / "should-not-exist.docx"
